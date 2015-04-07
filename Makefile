@@ -107,6 +107,7 @@ asynchbase_SOURCES := \
 	src/RowFilter.java	\
 	src/RowLock.java	\
 	src/RowLockRequest.java	\
+	src/RpcTimeoutException.java \
 	src/ScanFilter.java	\
 	src/Scanner.java	\
 	src/SingletonList.java	\

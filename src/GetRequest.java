@@ -46,7 +46,7 @@ import org.hbase.async.generated.HBasePB.TimeRange;
  */
 public final class GetRequest extends HBaseRpc implements HBaseRpc.HasTable,
     HBaseRpc.HasKey, HBaseRpc.HasFamily, HBaseRpc.HasQualifiers,
-    HBaseRpc.HasFilter {
+    HBaseRpc.HasFilter, HBaseRpc.SupportsRpcTimeout {
 
   private static final byte[] GET = new byte[] { 'g', 'e', 't' };
   static final byte[] GGET = new byte[] { 'G', 'e', 't' }; // HBase 0.95+
@@ -63,6 +63,7 @@ public final class GetRequest extends HBaseRpc implements HBaseRpc.HasTable,
   private int storeOffset = 0;
   private long maxTimestamp = Long.MAX_VALUE;
   private long minTimestamp = 0L;
+  private int rpctimeout = 0;
 
   /**
    * How many versions of each cell to retrieve. The least significant bit is
@@ -84,6 +85,7 @@ public final class GetRequest extends HBaseRpc implements HBaseRpc.HasTable,
   public GetRequest(final byte[] table, final byte[] key) {
     super(table, key);
   }
+  
 
   /**
    * Constructor.
@@ -323,13 +325,15 @@ public final class GetRequest extends HBaseRpc implements HBaseRpc.HasTable,
       this.filterName = filter.name();
     }
   }
-  
+
   public void setMinTimestamp(long minStamp) {
     this.minTimestamp = minStamp;
   }
+
   public void setMaxTimestamp(long maxStamp) {
     this.maxTimestamp = maxStamp;
   }
+
   /** Specifies an filter.. */
   public GetRequest filterName(final byte[] filterName) {
     this.filterName = filterName;
@@ -360,6 +364,16 @@ public final class GetRequest extends HBaseRpc implements HBaseRpc.HasTable,
     return this;
   }
 
+  public GetRequest setRpcTimeout(int timeout) {
+    this.rpctimeout = timeout;
+    return this;
+  }
+  
+  @Override
+  public int rpctimeout() {
+    return this.rpctimeout;
+  }
+  
   @Override
   byte[] method(final byte server_version) {
     if (server_version >= RegionClient.SERVER_VERSION_095_OR_ABOVE) {
@@ -494,7 +508,8 @@ public final class GetRequest extends HBaseRpc implements HBaseRpc.HasTable,
     if (!isGetRequest()) {
       getpb.setExistenceOnly(true);
     }
-    getpb.setTimeRange(TimeRange.newBuilder().setFrom(minTimestamp).setTo(maxTimestamp));
+    getpb.setTimeRange(TimeRange.newBuilder().setFrom(minTimestamp)
+        .setTo(maxTimestamp));
     getpb.setStoreOffset(storeOffset);
     getpb.setStoreLimit(storeLimit);
     final ClientPB.GetRequest.Builder get = ClientPB.GetRequest.newBuilder()
