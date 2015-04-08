@@ -411,12 +411,14 @@ public abstract class HBaseRpc {
    * that access this attribute will have a happens-before relationship with the
    * rest of the code, due to other existing synchronization.
    */
-  byte attempt; // package-private for RegionClient and HBaseClient only.
+  byte attempt = 0; // package-private for RegionClient and HBaseClient only.
 
+  byte maxAttempt = 10; // default max attempt is 1.
+  
   /**
    * RPC timeout, null if this RPC does not support RPC timeouts.
    */
-  Timeout rpctimeout;
+  Timeout rpctimeout = null;
 
   /**
    * If true, this RPC should fail-fast as soon as we know we have a problem.

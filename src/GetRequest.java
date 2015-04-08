@@ -306,6 +306,15 @@ public final class GetRequest extends HBaseRpc implements HBaseRpc.HasTable,
     return versions >>> 1;
   }
 
+  public int getMaxAttempt() { 
+    return this.maxAttempt;
+  }
+  
+  public GetRequest setMaxAttempt(byte maxAttempt) {
+    this.maxAttempt = maxAttempt;
+    return this;
+  }
+  
   /** Specifies an filter.. */
   public GetRequest filter(final byte[] filter) {
     this.filter = filter;

@@ -1827,7 +1827,7 @@ public final class HBaseClient {
    *           already.
    */
   static boolean cannotRetryRequest(final HBaseRpc rpc) {
-    return rpc.attempt > 10; // XXX Don't hardcode.
+    return rpc.attempt > rpc.maxAttempt; // XXX Don't hardcode.
   }
 
   /**
