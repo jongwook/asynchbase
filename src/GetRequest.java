@@ -63,7 +63,8 @@ public final class GetRequest extends HBaseRpc implements HBaseRpc.HasTable,
   private int storeOffset = 0;
   private long maxTimestamp = Long.MAX_VALUE;
   private long minTimestamp = 0L;
-  private int rpctimeout = 0;
+  /** change default rpc timeout to 60 seconds */
+  private int rpctimeout = 60000; 
 
   /**
    * How many versions of each cell to retrieve. The least significant bit is
