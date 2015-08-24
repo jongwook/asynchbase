@@ -28,6 +28,7 @@ package org.hbase.async;
 
 import com.google.protobuf.ByteString;
 
+import org.hbase.async.HBaseRpc;
 import org.jboss.netty.buffer.ChannelBuffer;
 
 import org.hbase.async.generated.ClientPB.Condition;
@@ -39,6 +40,8 @@ import org.hbase.async.generated.ComparatorPB.ByteArrayComparable;
 import org.hbase.async.generated.ComparatorPB.Comparator;
 import org.hbase.async.generated.HBasePB.CompareType;
 
+import java.lang.Override;
+
 /**
  * Atomically executes a Compare-And-Set (CAS) on an HBase cell.
  * <p>
@@ -49,7 +52,7 @@ import org.hbase.async.generated.HBasePB.CompareType;
 final class CompareAndSetRequest extends HBaseRpc
   implements HBaseRpc.HasTable, HBaseRpc.HasKey,
              HBaseRpc.HasFamily, HBaseRpc.HasQualifier, HBaseRpc.HasValue,
-             HBaseRpc.IsEdit {
+             HBaseRpc.IsEdit, HBaseRpc.HasTimestamp {
 
   /** Awesome RPC method name...  For HBase 0.94 and earlier only.  */
   private static final byte[] CHECKANDPUT = {
@@ -65,6 +68,7 @@ final class CompareAndSetRequest extends HBaseRpc
 
   /** Expected value.  */
   private final byte[] expected;
+
 
   /**
    * Constructor.
@@ -103,9 +107,10 @@ final class CompareAndSetRequest extends HBaseRpc
   }
 
   @Override
-  public byte[] qualifier() {
-    return put.qualifier();
-  }
+  public byte[] qualifier() { return put.qualifier(); }
+
+  @Override
+  public long timestamp() { return put.timestamp(); }
 
   /**
    * Returns the expected value.
@@ -174,7 +179,9 @@ final class CompareAndSetRequest extends HBaseRpc
       MutationProto.ColumnValue.QualifierValue.newBuilder()
       .setQualifier(qualifier)
       .setValue(value)
+      .setTimestamp(timestamp())
       .build();
+
     final MutationProto.ColumnValue column =
       MutationProto.ColumnValue.newBuilder()
       .setFamily(family)
