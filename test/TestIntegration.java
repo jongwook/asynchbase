@@ -24,13 +24,8 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-package org.hbase.async.test;
+package org.hbase.async;
 
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
-import java.lang.reflect.Method;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStream;
@@ -39,12 +34,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 
-import org.hbase.async.KeyOnlyFilter;
-import org.jboss.netty.logging.InternalLoggerFactory;
-import org.jboss.netty.logging.Slf4JLoggerFactory;
-
 import org.slf4j.Logger;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -55,6 +45,7 @@ import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunListener;
 import org.powermock.reflect.Whitebox;
+
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -78,6 +69,7 @@ import org.hbase.async.DependentColumnFilter;
 import org.hbase.async.FamilyFilter;
 import org.hbase.async.FilterList;
 import org.hbase.async.FirstKeyOnlyFilter;
+import org.hbase.async.FuzzyRowFilter;
 import org.hbase.async.GetRequest;
 import org.hbase.async.HBaseClient;
 import org.hbase.async.KeyRegexpFilter;
@@ -93,14 +85,14 @@ import org.hbase.async.SubstringComparator;
 import org.hbase.async.TableNotFoundException;
 import org.hbase.async.TimestampsFilter;
 import org.hbase.async.ValueFilter;
-
-import org.hbase.async.test.Common;
+import org.hbase.async.Common;
 
 /**
  * Basic integration and regression tests for asynchbase.
  *
  * Requires a locally running HBase cluster.
  */
+
 final public class TestIntegration {
 
   private static final Logger LOG = Common.logger(TestIntegration.class);
@@ -169,7 +161,7 @@ final public class TestIntegration {
 
   /** Ensures the table/family we use for our test exists. */
   private static void preFlightTest(final String[] args) throws Exception {
-    final HBaseClient client = Common.getOpt(TestIncrementCoalescing.class,
+    final HBaseClient client = Common.getOpt(TestIntegration.class,
                                              args);
     try {
       createOrTruncateTable(client, args[0], args[1]);
@@ -259,6 +251,100 @@ final public class TestIntegration {
     assertEq("val1", kvs2.get(0).value());
   }
 
+  /**
+   * Call Append on a column for the first time and validate that it was
+   * created.
+   */
+  @Test
+  public void appendOnceNoReturnRead() throws Exception {
+    client.setFlushInterval(FAST_FLUSH);
+    truncateTable(table);
+    final double write_time = System.currentTimeMillis();
+    final AppendRequest append = new AppendRequest(table, "a", family, "q", "val");
+    final GetRequest get = new GetRequest(table, "a", family, "q");
+    assertNull(client.append(append).join());
+    final ArrayList<KeyValue> kvs = client.get(get).join();
+    assertSizeIs(1, kvs);
+    final KeyValue kv = kvs.get(0);
+    assertEq("a", kv.key());
+    assertEq(family, kv.family());
+    assertEq("q", kv.qualifier());
+    assertEq("val", kv.value());
+    final double kvts = kv.timestamp();
+    assertEquals(write_time, kvts, 5000.0);  // Within five seconds.
+  }
+
+  /**
+   * Call append on a column twice, the first time to create it, the second to
+   * append the new value.
+   */
+  @Test
+  public void appendTwiceNoReturnRead() throws Exception {
+    client.setFlushInterval(FAST_FLUSH);
+    truncateTable(table);
+    final double write_time = System.currentTimeMillis();
+    final AppendRequest append = new AppendRequest(table, "a2", family, "q", "val");
+    final AppendRequest append2 = new AppendRequest(table, "a2", family, "q", "2ndv");
+    final GetRequest get = new GetRequest(table, "a2", family, "q");
+    assertNull(client.append(append).join());
+    assertNull(client.append(append2).join());
+    final ArrayList<KeyValue> kvs = client.get(get).join();
+    assertSizeIs(1, kvs);
+    final KeyValue kv = kvs.get(0);
+    assertEq("a2", kv.key());
+    assertEq(family, kv.family());
+    assertEq("q", kv.qualifier());
+    assertEq("val2ndv", kv.value());
+    final double kvts = kv.timestamp();
+    assertEquals(write_time, kvts, 5000.0);  // Within five seconds.
+  }
+  
+  @Test
+  public void appendTwiceBatchedNoReturnRead() throws Exception {
+    truncateTable(table);
+    final double write_time = System.currentTimeMillis();
+    final AppendRequest append = new AppendRequest(table, "a2", family, "q", "val");
+    final AppendRequest append2 = new AppendRequest(table, "a2", family, "q", "2ndv");
+    final GetRequest get = new GetRequest(table, "a2", family, "q");
+    final ArrayList<Deferred<Object>> deferreds = new ArrayList<Deferred<Object>>(2);
+    deferreds.add(client.append(append));
+    deferreds.add(client.append(append2));
+    Deferred.group(deferreds).join();
+    final ArrayList<KeyValue> kvs = client.get(get).join();
+    assertSizeIs(1, kvs);
+    final KeyValue kv = kvs.get(0);
+    assertEq("a2", kv.key());
+    assertEq(family, kv.family());
+    assertEq("q", kv.qualifier());
+    assertEq("val2ndv", kv.value());
+    final double kvts = kv.timestamp();
+    assertEquals(write_time, kvts, 5000.0);  // Within five seconds.
+  }
+  
+  @Test
+  public void appendTwiceBatchedReturnRead() throws Exception {
+    truncateTable(table);
+    final double write_time = System.currentTimeMillis();
+    final AppendRequest append = new AppendRequest(table, "a2", family, "q", "val");
+    append.returnResult(true);
+    final AppendRequest append2 = new AppendRequest(table, "a2", family, "q", "2ndv");
+    append2.returnResult(true);
+    final GetRequest get = new GetRequest(table, "a2", family, "q");
+    final ArrayList<Deferred<Object>> deferreds = new ArrayList<Deferred<Object>>(2);
+    deferreds.add(client.append(append));
+    deferreds.add(client.append(append2));
+    Deferred.group(deferreds).join();
+    final ArrayList<KeyValue> kvs = client.get(get).join();
+    assertSizeIs(1, kvs);
+    final KeyValue kv = kvs.get(0);
+    assertEq("a2", kv.key());
+    assertEq(family, kv.family());
+    assertEq("q", kv.qualifier());
+    assertEq("val2ndv", kv.value());
+    final double kvts = kv.timestamp();
+    assertEquals(write_time, kvts, 5000.0);  // Within five seconds.
+  }
+
   /** Basic scan test. */
   @Test
   public void basicScan() throws Exception {
@@ -300,6 +386,34 @@ final public class TestIntegration {
       }
       try {
         scanner.nextRows(1).addCallback(new cb()).join();
+      } finally {
+        scanner.close().join();
+      }
+    }
+  }
+
+  /** Scan which closes before reaching end of results. */
+  @Test
+  public void scanCloseEarly() throws Exception {
+    client.setFlushInterval(FAST_FLUSH);
+    final PutRequest put1 = new PutRequest(table, "s1", family, "q", "v1");
+    final PutRequest put2 = new PutRequest(table, "s2", family, "q", "v2");
+    Deferred.group(client.put(put1), client.put(put2)).join();
+    // Scan for the first row twice.
+    for (int i = 0; i < 2; i++) {
+      LOG.info("------------ iteration #" + i);
+      final Scanner scanner = client.newScanner(table);
+      scanner.setStartKey("s0");
+      scanner.setStopKey("s3");
+      try {
+        final ArrayList<ArrayList<KeyValue>> rows = scanner.nextRows(1).join();
+        assertSizeIs(1, rows);
+        final ArrayList<KeyValue> kvs = rows.get(0);
+        final KeyValue kv = kvs.get(0);
+        assertSizeIs(1, kvs);
+        assertEq("s1", kv.key());
+        assertEq("q", kv.qualifier());
+        assertEq("v1", kv.value());
       } finally {
         scanner.close().join();
       }
@@ -734,6 +848,47 @@ final public class TestIntegration {
 
   }
 
+
+  /** Test fuzzy row filters.  */
+  @Test
+  public void fuzzyRowFilter() throws Exception {
+    client.setFlushInterval(FAST_FLUSH);
+    final PutRequest put1 = new PutRequest(table, "1 accept this",
+        family, "q", "frfv1");
+    final PutRequest put2 = new PutRequest(table, "2 filter this",
+        family, "q", "frfv2");
+    final PutRequest put3 = new PutRequest(table, "3 accept this",
+        family, "q", "frfv3");
+    final PutRequest put4 = new PutRequest(table, "4 keep   that",
+        family, "q", "frfv4");
+    Deferred.group(Deferred.group(client.put(put1), client.put(put2)),
+        Deferred.group(client.put(put3), client.put(put4))).join();
+    final Scanner scanner = client.newScanner(table);
+    scanner.setFamily(family);
+    scanner.setStartKey("1");
+    scanner.setStopKey("5");
+    ArrayList<FuzzyRowFilter.FuzzyFilterPair> filters = new
+        ArrayList<FuzzyRowFilter.FuzzyFilterPair>();
+    filters.add(new FuzzyRowFilter.FuzzyFilterPair(
+        new byte[]{'?',' ','a','c','c','e','p','t',' ','t','h','i','s'},
+        new byte[]{ 1 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 1 , 1 , 1 , 1 }));
+    filters.add(new FuzzyRowFilter.FuzzyFilterPair(
+        new byte[]{'?','?','?','?','?','?','?','?','?','t','h','a','t'},
+        new byte[]{ 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 0 , 0 , 0 , 0 }));
+    scanner.setFilter(new FuzzyRowFilter(filters));
+    final ArrayList<ArrayList<KeyValue>> rows = scanner.nextRows().join();
+    assertSizeIs(3, rows);
+    ArrayList<KeyValue> kvs = rows.get(0);
+    assertSizeIs(1, kvs);
+    assertEq("frfv1", kvs.get(0).value());
+    kvs = rows.get(1);
+    assertSizeIs(1, kvs);
+    assertEq("frfv3", kvs.get(0).value());
+    kvs = rows.get(2);
+    assertSizeIs(1, kvs);
+    assertEq("frfv4", kvs.get(0).value());
+  }
+
   /** Simple column prefix filter tests.  */
   @Test
   public void columnPrefixFilter() throws Exception {
@@ -996,7 +1151,34 @@ final public class TestIntegration {
     assertSizeIs(1, kvs);   // KV from "fl2":
     assertEq("v4", kvs.get(0).value());
   }
-  
+
+  /** Simple timestamps filter list tests.  */
+  @Test
+  public void timestampsFilter() throws Exception {
+    client.setFlushInterval(FAST_FLUSH);
+    final byte[] tableBytes = Bytes.UTF8(table);
+    final byte[] familyBytes = Bytes.UTF8(family);
+    final byte[] qualifier = Bytes.UTF8("q");
+    final PutRequest put1 =
+      new PutRequest(tableBytes, Bytes.UTF8("tf1"), familyBytes, qualifier, Bytes.UTF8("v1"), 1L);
+    final PutRequest put2 =
+      new PutRequest(tableBytes, Bytes.UTF8("tf2"), familyBytes, qualifier, Bytes.UTF8("v2"), 2L);
+    final PutRequest put3 =
+      new PutRequest(tableBytes, Bytes.UTF8("tf3"), familyBytes, qualifier, Bytes.UTF8("v3"), 3L);
+    Deferred.group(client.put(put1), client.put(put2), client.put(put3)).join();
+    final Scanner scanner = client.newScanner(table);
+    scanner.setFamily(family);
+    scanner.setStartKey(Bytes.UTF8("tf"));
+    scanner.setStopKey(Bytes.UTF8("tf4"));
+    scanner.setFilter(new TimestampsFilter(1L, 3L));
+    final ArrayList<ArrayList<KeyValue>> rows = scanner.nextRows().join();
+    assertSizeIs(2, rows);
+    assertSizeIs(1, rows.get(0));
+    assertEq("v1", rows.get(0).get(0).value());
+    assertSizeIs(1, rows.get(1));
+    assertEq("v3", rows.get(1).get(0).value());
+  }
+
   /** Simple first key only filter tests.  */
   @Test
   public void firstKeyOnlyFilter() throws Exception {
@@ -1029,68 +1211,6 @@ final public class TestIntegration {
     assertEq("v6", kvs.get(0).value());
   }
 
-  /** Simple key only filter tests.  */
-  @Test
-  public void keyOnlyFilter() throws Exception {
-    client.setFlushInterval(FAST_FLUSH);
-    final PutRequest put1 = new PutRequest(table, "row1", family, "q1", "v1");
-    final PutRequest put2 = new PutRequest(table, "row1", family, "q2", "v2");
-    final PutRequest put3 = new PutRequest(table, "row2", family, "q1", "v3");
-    final PutRequest put4 = new PutRequest(table, "row3", family, "q1", "v4");
-    Deferred.group(Deferred.group(client.put(put1), client.put(put2)),
-        Deferred.group(client.put(put3), client.put(put4))).join();
-    final Scanner scanner = client.newScanner(table);
-    scanner.setFamily(family);
-    scanner.setStartKey("row1");
-    scanner.setStopKey("row4");
-    scanner.setFilter(new KeyOnlyFilter());
-    final ArrayList<ArrayList<KeyValue>> rows = scanner.nextRows().join();
-    assertSizeIs(3, rows);  // Should have all 3 rows
-    ArrayList<KeyValue> kvs = rows.get(0); // row1
-    assertSizeIs(2, kvs);
-    assertEq("row1", kvs.get(0).key());
-    assertEq("", kvs.get(0).value());
-    assertEq("row1", kvs.get(1).key());
-    assertEq("", kvs.get(1).value());
-
-    kvs = rows.get(1); // row2
-    assertSizeIs(1, kvs);
-    assertEq("row2", kvs.get(0).key());
-    assertEq("", kvs.get(0).value());
-
-    kvs = rows.get(2); // row3
-    assertSizeIs(1, kvs);
-    assertEq("row3", kvs.get(0).key());
-    assertEq("", kvs.get(0).value());
-  }
-
-  /** Simple timestamps filter list tests.  */
-  @Test
-  public void timestampsFilter() throws Exception {
-    client.setFlushInterval(FAST_FLUSH);
-    final byte[] tableBytes = Bytes.UTF8(table);
-    final byte[] familyBytes = Bytes.UTF8(family);
-    final byte[] qualifier = Bytes.UTF8("q");
-    final PutRequest put1 =
-      new PutRequest(tableBytes, Bytes.UTF8("tf1"), familyBytes, qualifier, Bytes.UTF8("v1"), 1L);
-    final PutRequest put2 =
-      new PutRequest(tableBytes, Bytes.UTF8("tf2"), familyBytes, qualifier, Bytes.UTF8("v2"), 2L);
-    final PutRequest put3 =
-      new PutRequest(tableBytes, Bytes.UTF8("tf3"), familyBytes, qualifier, Bytes.UTF8("v3"), 3L);
-    Deferred.group(client.put(put1), client.put(put2), client.put(put3)).join();
-    final Scanner scanner = client.newScanner(table);
-    scanner.setFamily(family);
-    scanner.setStartKey(Bytes.UTF8("tf"));
-    scanner.setStopKey(Bytes.UTF8("tf4"));
-    scanner.setFilter(new TimestampsFilter(1L, 3L));
-    final ArrayList<ArrayList<KeyValue>> rows = scanner.nextRows().join();
-    assertSizeIs(2, rows);
-    assertSizeIs(1, rows.get(0));
-    assertEq("v1", rows.get(0).get(0).value());
-    assertSizeIs(1, rows.get(1));
-    assertEq("v3", rows.get(1).get(0).value());
-  }
-
   @Test
   public void prefetchMeta() throws Exception {
     // Prefetch the metadata for a given table, then invasively probe the
@@ -1101,6 +1221,73 @@ final public class TestIntegration {
                                                table.getBytes(),
                                                HBaseClient.EMPTY_ARRAY);
     assertNotNull(region_info);
+  }
+
+  /** Simple ColumnPaginationFilter filter test on a Get request.  */
+  @Test
+  public void columnPaginationFilterOnGet() throws Exception {
+    client.setFlushInterval(FAST_FLUSH);
+    final PutRequest put1 = new PutRequest(table, "row1", family, "q1", "v1");
+    final PutRequest put2 = new PutRequest(table, "row1", family, "q2", "v2");
+    final PutRequest put3 = new PutRequest(table, "row1", family, "q3", "v3");
+    final PutRequest put4 = new PutRequest(table, "row1", family, "q4", "v4");
+
+    Deferred.group(Deferred.group(client.put(put1), client.put(put2)),
+        Deferred.group(client.put(put3), client.put(put4))).join();
+
+    // Test ColumnPaginationFilter(int limit, int offset)
+    final GetRequest get = new GetRequest(table,  "row1");
+    get.setFilter(new ColumnPaginationFilter(3, 1));
+    ArrayList<KeyValue> kvs = client.get(get).join();
+    assertNotNull(kvs);
+    assertSizeIs(3, kvs);
+    assertEq("v2", kvs.get(0).value());
+    assertEq("v3", kvs.get(1).value());
+    assertEq("v4", kvs.get(2).value());
+  }
+
+  /** SimpleColumnPrefixFilter tests on a Get request. */
+  @Test
+  public void columnPrefixFilterOnGet() throws Exception {
+    client.setFlushInterval(FAST_FLUSH);
+    // Keep only rows with a column qualifier that starts with "qa".
+    final PutRequest put1 = new PutRequest(table, "cpf1", family, "qa1", "v1");
+    final PutRequest put2 = new PutRequest(table, "cpf1", family, "qa2", "v2");
+    final PutRequest put3 = new PutRequest(table, "cpf1", family, "qa3", "v3");
+    final PutRequest put4 = new PutRequest(table, "cpf1", family, "qb4", "v4");
+    Deferred.group(Deferred.group(client.put(put1), client.put(put2)),
+                   Deferred.group(client.put(put3), client.put(put4))).join();
+    final GetRequest get = new GetRequest(table,  "cpf1");
+    get.setFilter(new ColumnPrefixFilter("qa"));
+    ArrayList<KeyValue> kvs = client.get(get).join();
+    assertSizeIs(3, kvs);
+    assertEq("v1", kvs.get(0).value());
+    assertEq("v2", kvs.get(1).value());
+    assertEq("v3", kvs.get(2).value());
+  }
+
+  /** Simple timestamps filter tests on a Get request.  */
+  @Test
+  public void timestampsOnGet() throws Exception {
+    client.setFlushInterval(FAST_FLUSH);
+    final byte[] tableBytes = Bytes.UTF8(table);
+    final byte[] familyBytes = Bytes.UTF8(family);
+    final byte[] rowBytes = Bytes.UTF8("row1");
+    final PutRequest put1 = new PutRequest(tableBytes, rowBytes, familyBytes, Bytes.UTF8("q1"), Bytes.UTF8("v1"), 1L);
+    final PutRequest put2 = new PutRequest(tableBytes, rowBytes, familyBytes, Bytes.UTF8("q2"), Bytes.UTF8("v2"), 2L);
+    final PutRequest put3 = new PutRequest(tableBytes, rowBytes, familyBytes, Bytes.UTF8("q3"), Bytes.UTF8("v3"), 3L);
+    final PutRequest put4 = new PutRequest(tableBytes, rowBytes, familyBytes, Bytes.UTF8("q4"), Bytes.UTF8("v4"), 4L);
+
+    Deferred.group(Deferred.group(client.put(put1), client.put(put2)),
+        Deferred.group(client.put(put3), client.put(put4))).join();
+
+    final GetRequest get = new GetRequest(table,  "row1");
+    get.setMinTimestamp(2L);
+    get.setMaxTimestamp(4L);
+    ArrayList<KeyValue> kvs = client.get(get).join();
+    assertSizeIs(2, kvs);
+    assertEq("v2", kvs.get(0).value());
+    assertEq("v3", kvs.get(1).value());
   }
 
   /** Regression test for issue #2. */
