@@ -602,6 +602,9 @@ public final class GetRequest extends HBaseRpc
       getpb.setExistenceOnly(true);
     }
 
+    getpb.setStoreOffset(this.storeOffset);
+    getpb.setStoreLimit(this.storeLimit);
+    
     final ClientPB.GetRequest.Builder get = ClientPB.GetRequest.newBuilder()
       .setRegion(region.toProtobuf())
       .setGet(getpb.build());
