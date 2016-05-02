@@ -174,7 +174,8 @@ final class CompareAndSetRequest extends HBaseRpc
     final MutationProto.ColumnValue.QualifierValue qual =
       MutationProto.ColumnValue.QualifierValue.newBuilder()
       .setQualifier(qualifier)
-      .setValue(value).setTimestamp(timestamp())
+      .setValue(value)
+      .setTimestamp(put.timestamp())
       .build();
     final MutationProto.ColumnValue column =
       MutationProto.ColumnValue.newBuilder()
