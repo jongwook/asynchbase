@@ -3,7 +3,7 @@
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>org.apache.s2graph</groupId>
+  <groupId>com.github.jongwook</groupId>
   <artifactId>asynchbase</artifactId>
   <version>@spec_version@</version>
   <name>@spec_title@</name>
@@ -336,5 +336,14 @@
     <!--Empty relativePath is workaround.  See MNG-4687-->
     <relativePath></relativePath>
   </parent>
-
+  <distributionManagement>
+    <snapshotRepository>
+      <id>ossrh</id>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+    </snapshotRepository>
+    <repository>
+      <id>ossrh</id>
+      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+    </repository>
+  </distributionManagement>
 </project>
